@@ -2,12 +2,33 @@ import React, { PropTypes } from 'react';
 import {catalogShape} from '../CatalogPropTypes';
 import Radium from 'radium';
 import Frame from '../components/Frame/Frame';
+import Hint from '../specimens/Hint';
 import Specimen from '../components/Specimen/Specimen';
 import HighlightedCode from '../components/HighlightedCode/HighlightedCode';
 import runscript from '../utils/runscript';
 
 const PADDING = 3;
 const SIZE = 20;
+const SCREENSIZES = [
+  {name: 'small', width: 360, height: 640},
+  {name: 'medium', width: 1024, height: 768},
+  {name: 'large', width: 1440, height: 900},
+  {name: 'xlarge', width: 1920, height: 1080}
+];
+const INSTRUCTION =
+`theme: {
+  //...
+  devices: [
+    {name: 'watch-42mm', width: 312, height: 390}
+  ],
+  //...
+},
+`;
+
+const getScreensizes = (customSizes) => [
+  ...SCREENSIZES,
+  ...customSizes
+];
 
 function getStyle(theme) {
   return {
@@ -16,7 +37,8 @@ function getStyle(theme) {
       borderRadius: '2px',
       boxSizing: 'border-box',
       position: 'relative',
-      flexBasis: '100%'
+      flexBasis: '100%',
+      marginTop: '20px'
     },
     toggle: {
       border: PADDING + 'px solid transparent',
@@ -69,6 +91,27 @@ function getStyle(theme) {
     plain_dark: {
       background: theme.bgDark,
       padding: '20px'
+    },
+    device: {
+      background: theme.bgLight,
+      padding: '15px',
+      textAlign: 'center'
+    },
+    screensizes: {
+      display: 'flex',
+      fontFamily: theme.fontMono,
+      position: 'absolute',
+      left: -PADDING + 'px',
+      top: -(SIZE + 2 * PADDING) + 'px'
+    },
+    screensize: {
+      margin: '0 20px 0 0',
+      cursor: 'pointer',
+      userSelect: 'none',
+      color: theme.lightColor
+    },
+    screensizeActive: {
+      color: theme.textColor
     }
   };
 }
@@ -77,27 +120,50 @@ class Html extends React.Component {
   constructor() {
     super();
     this.state = {
-      viewSource: false
+      viewSource: false,
+      parentWidth: 0,
+      screenSize: SCREENSIZES[0]
     };
   }
 
   componentDidMount() {
-    const {runScript} = this.props;
+    const {runScript, frame, device, catalog: {theme}} = this.props;
+    let devices = theme.devices ? getScreensizes( theme.devices ) : SCREENSIZES;
     if (runScript) {
       Array.from(this.refs.specimen.querySelectorAll('script'))
         .forEach(runscript);
+    } else if (frame || device) {
+      this.getWidth();
+      device !== 'select' ? this.setSize( devices.find(sc=>sc.name === device) || SCREENSIZES[0] ) : null;
     }
+  }
+
+  getWidth() {
+    this.setState({parentWidth: this.refs.specimen.getBoundingClientRect().width});
+  }
+
+  toggleSource() {
+    this.setState({viewSource: !this.state.viewSource});
+  }
+
+  setSize(screenSize) {
+    this.setState({screenSize: screenSize});
   }
 
   render() {
     const {catalog: {theme}, children, frame, ...options} = this.props;
+    const {parentWidth, screenSize} = this.state;
     const styles = getStyle(theme);
+    let devices = theme.devices ? getScreensizes( theme.devices ) : SCREENSIZES;
+    let deviceFoundInList = devices.find(sc=>sc.name === options.device);
+
     const exampleStyles = {
       ...(options.plain ? styles.plain : null),
       ...(options.light ? styles.light : null),
       ...(options.dark ? styles.dark : null),
       ...(options.plain && options.light ? styles.plain_light : null),
-      ...(options.plain && options.dark ? styles.plain_dark : null)
+      ...(options.plain && options.dark ? styles.plain_dark : null),
+      ...(options.device ? styles.device : null)
     };
 
     let source = this.state.viewSource
@@ -108,27 +174,57 @@ class Html extends React.Component {
       ? <div style={styles.toggle} onClick={this.toggleSource.bind(this)}>&lt;&gt;</div>
       : null;
 
+    let responsive = options.device === 'select' || deviceFoundInList === undefined
+      ? <div style={styles.screensizes}>
+          { devices.map( (sc, i) => <div
+            key={i}
+            style={{...styles.screensize, ...(sc.name === screenSize.name ? styles.screensizeActive : null) }}
+            onClick={this.setSize.bind(this, sc)}>
+              {sc.name}
+              {sc.name === screenSize.name
+                ? <small>(@{screenSize.width}x{screenSize.height}{(sc.width > parentWidth) && ' scaled'})</small>
+                : <small>{(sc.width > parentWidth) && '(scaled)'}</small>
+              }
+            </div>
+          )}
+        </div>
+      : <div style={styles.screensizes}>
+          {
+            options.device && screenSize.width > parentWidth
+            ? <div>{options.device} <small>(@{screenSize.width}x{screenSize.height}, scaled)</small></div>
+            : <div>{options.device} <small>(@{screenSize.width}x{screenSize.height})</small></div>
+          }
+        </div>;
+
     const content = <div dangerouslySetInnerHTML={{__html: children}} />;
 
     return (
       <div ref='specimen' style={styles.container} className='cg-Specimen-Html'>
-        {toggle}
+        {options.device ? responsive : null} {toggle}
         <div style={{...styles.content, ...exampleStyles}}>
-          {frame ? <Frame>{content}</Frame> : content }
+          {frame || options.device
+            ? <Frame width={options.device ? screenSize.width : parentWidth} parentWidth={parentWidth} height={options.device ? screenSize.height : void 0}>
+                {content}
+              </Frame>
+            : content }
         </div>
         {source}
+        { options.device && !deviceFoundInList && options.device !== 'select' &&
+          <Hint>
+            There was no match for a device called <b>'{options.device}'</b>.
+            Please make sure to add custom devices in the catalog configuration like so:
+            <pre>{INSTRUCTION}</pre>
+          </Hint>
+        }
       </div>
     );
-  }
-
-  toggleSource() {
-    this.setState({viewSource: !this.state.viewSource});
   }
 }
 
 Html.propTypes = {
   children: PropTypes.string.isRequired,
   catalog: catalogShape.isRequired,
+  device: PropTypes.string,
   runScript: PropTypes.bool,
   plain: PropTypes.bool,
   light: PropTypes.bool,
