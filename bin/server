@@ -2,7 +2,10 @@
 
 /*eslint-disable*/
 
+var fs = require('fs');
 var path = require('path');
+var http = require('http');
+var parallel = require('async/parallel');
 var express = require('express');
 var webpack = require('webpack');
 var devMiddleware = require('webpack-dev-middleware');
@@ -21,15 +24,16 @@ var banner = [
   "                        (_/       "
 ].join("\n");
 
-function server(options, config) {
+
+function createExpressApp() {
   var app = express();
 
   app.use(historyApiFallback());
 
-  var compiler = webpack(config);
+  var compiler = webpack(webpackConfig);
 
   app.use(devMiddleware(compiler, {
-    publicPath: config.output.publicPath,
+    publicPath: webpackConfig.output.publicPath,
     stats: {
       assets: true,
       chunkModules: false,
@@ -46,15 +50,43 @@ function server(options, config) {
 
   app.use(express.static('.'));
 
-  app.listen(options.port, options.host, function (err, result) {
-    if (err) { throw err };
-    console.log(clc.erase.screen);
-    console.log(clc.red(banner));
-    console.log(clc.red('\nCatalog server running at ' + clc.underline('http://' + options.host + ':' + options.port)) + '\n');
-  });
-};
+  return app;
+}
 
-portfinder.getPort({port: 8080, host: '0.0.0.0'}, function(err, port) {
-  if (err) { throw err; }
-  server({port: port, host: '0.0.0.0'}, webpackConfig);
+var app = createExpressApp();
+
+parallel([
+  function(callback) {
+    var host = '0.0.0.0';
+    portfinder.getPort({port: 8080, host: host}, function(err, port) {
+      if (err) { throw err; }
+      http.createServer(app).listen(port, host, function(err) {
+        callback(err, 'http://' + host + ':' + port);
+      });
+    });
+  },
+  function(callback) {
+    if (process.env.BOXEN_SOCKET_DIR) {
+      var socketPath = process.env.BOXEN_SOCKET_DIR + '/catalog';
+      if (fs.existsSync(socketPath)) {
+        fs.unlinkSync(socketPath);
+      }
+      http.createServer(app).listen(socketPath, function(err) {
+        callback(err, 'http://catalog.dev');
+      });
+    } else {
+      callback(null, null);
+    }
+  },
+], function(err, results) {
+  if (err) { throw err };
+
+  var urls = results
+    .filter(function(x) { return x !== null; })
+    .map(function(x) { return clc.underline(x); })
+    .join(' and ');
+
+  console.log(clc.erase.screen);
+  console.log(clc.red(banner));
+  console.log(clc.red('\nCatalog server running at ' + urls) + '\n');
 });
