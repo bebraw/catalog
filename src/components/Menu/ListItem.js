@@ -48,7 +48,7 @@ export function style(theme) {
 class ListItem extends React.Component {
   render() {
     const {page, theme, nested} = this.props;
-    const {path, pages, title, menuTitle} = page;
+    const {path, pages, title, menuTitle, props} = page;
 
     const currentStyle = style(theme);
 
@@ -57,10 +57,11 @@ class ListItem extends React.Component {
       : {...currentStyle.link};
 
     return (
-      <li>
+      <li style={props && props.style}>
       { pages ?
-        <NestedList {...this.props} {...page} pages={pages} /> :
+        <NestedList {...this.props} {...props} {...page} pages={pages} /> :
         <Link
+          {...props}
           style={defaultStyle}
           activeStyle={currentStyle.activeLink}
           to={path}
